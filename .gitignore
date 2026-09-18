@@ -1,0 +1,6 @@
+﻿sing-box-*/
+*.exe
+*.zip
+*.log
+*.db
+*.json

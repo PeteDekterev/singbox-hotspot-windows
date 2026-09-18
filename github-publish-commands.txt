@@ -1,0 +1,17 @@
+# Run in PowerShell. PortableGit is used by full path because git is not in PATH.
+
+Set-Location 'C:\Users\Dekt\Downloads\PortableGit\hotspot'
+$git = 'C:\Users\Dekt\Downloads\PortableGit\bin\git.exe'
+
+@('sing-box-*/', '*.exe', '*.zip', '*.log', '*.db', '*.json') |
+  Set-Content -LiteralPath '.gitignore' -Encoding utf8
+
+$u = gh api user | ConvertFrom-Json
+& $git init
+& $git branch -M main
+& $git config user.name $u.login
+& $git config user.email "$($u.id)+$($u.login)@users.noreply.github.com"
+
+& $git add -- README.md .gitignore *.ps1 *.cmd deprecated github-publish-commands.txt
+& $git commit -m "Add standalone sing-box hotspot automation"
+gh repo create singbox-hotspot-windows --private --source=. --remote=origin --push
