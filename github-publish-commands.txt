@@ -3,7 +3,7 @@
 Set-Location 'C:\Users\Dekt\Downloads\PortableGit\hotspot'
 $git = 'C:\Users\Dekt\Downloads\PortableGit\bin\git.exe'
 
-@('sing-box-*/', '*.exe', '*.zip', '*.log', '*.db', '*.json') |
+@('sing-box-*/', 'trusttunnel-client/', '*.exe', '*.zip', '*.log', '*.db', '*.json') |
   Set-Content -LiteralPath '.gitignore' -Encoding utf8
 
 $u = gh api user | ConvertFrom-Json
