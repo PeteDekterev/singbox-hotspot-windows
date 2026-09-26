@@ -2,7 +2,7 @@
 
 Эта папка настраивает последовательность: **TrustTunnel VPN → адаптер `tun0` → раздача Wi-Fi `DektHotspot`**.
 
-Старый sing-box (VLESS Reality на заблокированный сервер 195.63.163.172) больше не запускается и не нужен. Его скрипты перенесены в [deprecated](deprecated/), а сам `sing-box-1.14.0/` можно удалить. Автозапуск использует только `trusttunnel-client\trusttunnel_client.exe` и автономный конфигурационный файл в `%LOCALAPPDATA%\PortableGit-hotspot\trusttunnel_client.toml`.
+Старый sing-box (VLESS Reality на заблокированный сервер 195.63.163.172) больше не запускается и не нужен. Его скрипты перенесены в [deprecated](deprecated/), а сам `sing-box-1.14.0/` можно удалить. Автозапуск использует только `trusttunnel-client\trusttunnel_client.exe` и конфигурационный файл `config\trusttunnel_client.toml` (папка `config\` добавлена в `.gitignore`, содержит VPN-учётные данные). Старый конфиг `config\sing-box.json` сохранён там же только для истории.
 
 ## Обычное использование
 
@@ -78,12 +78,12 @@ Hotspot started successfully through TrustTunnel.
 
 1. Запустите `stop-hotspot.cmd`.
 2. Запустите `start-trusttunnel-hotspot.cmd` от имени администратора.
-3. Откройте `vpn-hotspot-startup.log` и посмотрите последнюю строку с `ERROR`. Диагностика самого VPN-клиента — в `%LOCALAPPDATA%\PortableGit-hotspot\trusttunnel-client.err.log`.
+3. Откройте `vpn-hotspot-startup.log` и посмотрите последнюю строку с `ERROR`. Диагностика самого VPN-клиента — в `config\trusttunnel-client.err.log`.
 
 Не назначайте `192.168.137.1` вручную: этот адрес и DHCP должен выдавать ICS.
 
 ## Безопасность
 
-`%LOCALAPPDATA%\PortableGit-hotspot\trusttunnel_client.toml` содержит параметры VPN, включая логин/пароль туннеля. Не публикуйте этот файл, не отправляйте его в чат и не добавляйте в Git. То же правило, что и раньше было для `sing-box.json`.
+`config\trusttunnel_client.toml` содержит параметры VPN, включая логин/пароль туннеля. Папка `config\` добавлена в `.gitignore`: не публикуйте её содержимое, не отправляйте в чат. То же правило, что и раньше было для `sing-box.json`.
 
 Клиент запускается только с TUN-listener'ом: CLI-клиент принимает один тип listener'а за раз, а TUN нужен цепочке. Весь трафик самого ПК при этом тоже идёт через туннель (`vpn_mode = "general"`), отдельный SOCKS5-прокси на ПК не поднят.

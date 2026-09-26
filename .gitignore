@@ -1,5 +1,6 @@
 sing-box-*/
 trusttunnel-client/
+config/
 *.exe
 *.zip
 *.log
