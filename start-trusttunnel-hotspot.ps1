@@ -1,8 +1,8 @@
 # Start a TrustTunnel client tunnel from the locally stored profile,
-# then enable ICS-hosted Wi-Fi only after the tunnel has Internet connectivity.
+# then enable ICS on the configured Wi-Fi or Ethernet interface.
 [CmdletBinding()]
 param(
-    [string]$TunnelName = 'tun0',
+    [string]$TunnelName = '',
     [int]$WaitSeconds = 120,
     [int]$Attempts = 2
 )
@@ -15,8 +15,33 @@ $runtimeDir = Join-Path $root 'config'
 $runtimeConfig = Join-Path $runtimeDir 'trusttunnel_client.toml'
 $ttOutLog = Join-Path $runtimeDir 'trusttunnel-client.out.log'
 $ttErrLog = Join-Path $runtimeDir 'trusttunnel-client.err.log'
+$sharingConfigPath = Join-Path $runtimeDir 'hotspot-settings.psd1'
 $mutex = New-Object System.Threading.Mutex($false, 'Local\PortableGitTrusttunnelHotspot')
 $ownsMutex = $false
+
+function Get-SharingSettings {
+    $defaults = @{
+        DeliveryMode = 'WiFi'
+        EthernetAdapter = 'Ethernet 2'
+        TunnelName = 'tun0'
+        SSID = 'DektHotspot'
+        Key = 'dekt12345'
+    }
+    if (Test-Path -LiteralPath $sharingConfigPath) {
+        $saved = Import-PowerShellDataFile -LiteralPath $sharingConfigPath
+        # Take a snapshot: assigning a value in a Hashtable invalidates a live
+        # Keys enumerator in Windows PowerShell.
+        foreach ($name in @($defaults.Keys)) {
+            if ($saved.ContainsKey($name) -and -not [string]::IsNullOrWhiteSpace([string]$saved[$name])) {
+                $defaults[$name] = [string]$saved[$name]
+            }
+        }
+    }
+    if ($defaults.DeliveryMode -notin @('WiFi', 'Ethernet')) {
+        throw "DeliveryMode must be 'WiFi' or 'Ethernet' in $sharingConfigPath."
+    }
+    return $defaults
+}
 
 function Ensure-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -43,6 +68,8 @@ function Write-ClientLogTail {
 
 try {
     Ensure-Admin
+    $sharing = Get-SharingSettings
+    if (-not $TunnelName) { $TunnelName = $sharing.TunnelName }
     if (-not $mutex.WaitOne(0)) {
         Write-StartupLog 'Another TrustTunnel/hotspot startup instance is already running; this instance exits.'
         exit 0
@@ -83,9 +110,11 @@ try {
             # of a single 0.0.0.0/0 entry, so readiness is judged by the adapter's NCSI state.
             if ($adapter -and $adapter.Status -eq 'Up' -and $profile.IPv4Connectivity -eq 'Internet') {
                 Write-StartupLog 'TrustTunnel tunnel is ready.'
-                & (Join-Path $root 'hotspot-start.ps1') -Source $TunnelName
+                & (Join-Path $root 'hotspot-start.ps1') -Source $TunnelName `
+                    -DeliveryMode $sharing.DeliveryMode -EthernetAdapter $sharing.EthernetAdapter `
+                    -SSID $sharing.SSID -Key $sharing.Key
                 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "hotspot-start.ps1 exited with code $LASTEXITCODE" }
-                Write-StartupLog 'Hotspot started successfully through TrustTunnel.'
+                Write-StartupLog ("Internet sharing started successfully through TrustTunnel ({0})." -f $sharing.DeliveryMode)
                 exit 0
             }
             if ($process.HasExited) {

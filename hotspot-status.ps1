@@ -27,7 +27,7 @@ try {
             $rows += [pscustomobject]@{
                 'Подключение' = $props.Name
                 'Устройство'  = $props.DeviceName
-                'Роль'        = if ($cfg.SharingConnectionType -eq 0) { 'Источник интернета' } else { 'Точка доступа' }
+                'Роль'        = if ($cfg.SharingConnectionType -eq 0) { 'Источник интернета' } else { 'Интерфейс раздачи' }
             }
         }
     }

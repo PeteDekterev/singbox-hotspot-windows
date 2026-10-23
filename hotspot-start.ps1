@@ -4,7 +4,10 @@
 param(
     [string]$SSID = 'DektHotspot',
     [string]$Key = 'dekt12345',
-    [string]$Source = ''
+    [string]$Source = '',
+    [ValidateSet('WiFi', 'Ethernet')]
+    [string]$DeliveryMode = 'WiFi',
+    [string]$EthernetAdapter = 'Ethernet 2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,7 +121,105 @@ function Resolve-PublicAdapterName([string]$Preferred) {
     throw 'Не удалось определить адаптер с доступом в интернет. Укажите вручную: -Source "Ethernet"'
 }
 
+function Reset-StaleIcsState {
+    # HNetCfg can report no sharing while the legacy HomeNet provider retains a
+    # public/private role. HNet_ConnectionProperties is a legacy WMI provider:
+    # Set-CimInstance does not persist these values, so use ManagementObject.Put.
+    # This is called only after this script has disabled all ICS connections.
+    try {
+        $scope = New-Object System.Management.ManagementScope('root\Microsoft\HomeNet')
+        $scope.Connect()
+        $searcher = New-Object System.Management.ManagementObjectSearcher($scope, (New-Object System.Management.ObjectQuery('SELECT * FROM HNet_ConnectionProperties')))
+        foreach ($entry in $searcher.Get()) {
+            if ([bool]$entry['IsIcsPublic'] -or [bool]$entry['IsIcsPrivate']) {
+                $entry['IsIcsPublic'] = $false
+                $entry['IsIcsPrivate'] = $false
+                $entry.Put() | Out-Null
+            }
+        }
+        $sharedKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\SharedAccess'
+        $old = Get-ItemProperty -Path $sharedKey -ErrorAction SilentlyContinue
+        if ($old.PrivateIndex -ne 0) { Set-ItemProperty -Path $sharedKey -Name PrivateIndex -Value 0 -ErrorAction Stop }
+        if ($old.PublicIndex -ne 0) { Set-ItemProperty -Path $sharedKey -Name PublicIndex -Value 0 -ErrorAction Stop }
+        $svc = Get-Service -Name SharedAccess -ErrorAction Stop
+        if ($svc.Status -eq 'Running') { Restart-Service -Name SharedAccess -Force -ErrorAction Stop }
+        else { Start-Service -Name SharedAccess -ErrorAction Stop }
+        Start-Sleep -Seconds 4
+    } catch {
+        throw "Could not reset stale Internet Connection Sharing state: $($_.Exception.Message)"
+    }
+}
+
 Ensure-Admin
+
+# Ethernet mode deliberately exits before any Wi-Fi/hosted-network action. ICS
+# supports one private interface, so this replaces (rather than accompanies) a
+# Wi-Fi hotspot sharing session.
+if ($DeliveryMode -eq 'Ethernet') {
+    $privateAdapter = Get-NetAdapter -Name $EthernetAdapter -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $privateAdapter) {
+        throw "Ethernet adapter '$EthernetAdapter' was not found. Check EthernetAdapter in config\\hotspot-settings.psd1."
+    }
+    $publicName = Resolve-PublicAdapterName $Source
+    if ($publicName -eq $EthernetAdapter) { throw 'The internet source and Ethernet sharing adapter must be different.' }
+
+    $hnet = New-Object -ComObject HNetCfg.HNetShare
+    $conns = foreach ($c in $hnet.EnumEveryConnection) {
+        $props = $hnet.NetConnectionProps.Invoke($c)
+        [pscustomobject]@{
+            Name = $props.Name
+            Device = $props.DeviceName
+            Cfg = $hnet.INetSharingConfigurationForINetConnection.Invoke($c)
+        }
+    }
+    foreach ($c in $conns) { if ($c.Cfg.SharingEnabled) { $c.Cfg.DisableSharing() } }
+    Reset-StaleIcsState
+    # The SharedAccess restart invalidates COM connection objects; enumerate a
+    # fresh collection before assigning the new public/private ICS roles.
+    $hnet = New-Object -ComObject HNetCfg.HNetShare
+    $conns = foreach ($c in $hnet.EnumEveryConnection) {
+        $props = $hnet.NetConnectionProps.Invoke($c)
+        [pscustomobject]@{
+            Name = $props.Name
+            Device = $props.DeviceName
+            Cfg = $hnet.INetSharingConfigurationForINetConnection.Invoke($c)
+        }
+    }
+
+    # ICS must own 192.168.137.1 on the private Ethernet interface. A stopped
+    # hosted network can leave that address on its hidden, disconnected adapter,
+    # which makes EnableSharing fail with HRESULT 0x80040201.
+    $icsConflicts = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq '192.168.137.1' -and $_.InterfaceIndex -ne $privateAdapter.ifIndex })
+    foreach ($conflict in $icsConflicts) {
+        $adapter = Get-NetAdapter -IncludeHidden -InterfaceIndex $conflict.InterfaceIndex -ErrorAction SilentlyContinue
+        if ($adapter -and $adapter.Status -eq 'Disconnected') {
+            Remove-NetIPAddress -InputObject $conflict -Confirm:$false -ErrorAction Stop
+        }
+    }
+    $icsConflicts = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq '192.168.137.1' -and $_.InterfaceIndex -ne $privateAdapter.ifIndex })
+    if ($icsConflicts.Count -gt 0) {
+        throw '192.168.137.1 is still assigned to another active adapter. Release that address before enabling Ethernet sharing.'
+    }
+
+    $pub = @($conns | Where-Object { $_.Name -eq $publicName })[0]
+    $priv = @($conns | Where-Object { $_.Name -eq $EthernetAdapter })[0]
+    if (-not $pub) { throw "Internet source '$publicName' was not found among Windows network connections." }
+    if (-not $priv) { throw "Ethernet adapter '$EthernetAdapter' was not found among Windows network connections." }
+
+    try { $pub.Cfg.EnableSharing(0) }
+    catch { throw "Could not set '$publicName' as the Internet source: $($_.Exception.Message)" }
+    try { $priv.Cfg.EnableSharing(1) }
+    catch { throw "Could not set '$EthernetAdapter' as the sharing interface: $($_.Exception.Message)" }
+    # Do not leave an old SSID visible when the selected delivery mode is Ethernet.
+    netsh wlan stop hostednetwork | Out-Null
+    Write-Host 'Internet sharing is active.' -ForegroundColor Green
+    Write-Host ("  Source:      {0}" -f $publicName)
+    Write-Host ("  Destination: {0}" -f $EthernetAdapter)
+    Write-Host '  ICS assigns 192.168.137.1 and DHCP/DNS automatically; do not set it manually.'
+    exit 0
+}
 
 Write-Host 'Проверяю состояние Wi-Fi...'
 if ((Get-RadioSoftwareState) -ne 'On') {

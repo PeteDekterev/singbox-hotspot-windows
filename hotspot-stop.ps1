@@ -15,7 +15,7 @@ $hnet = New-Object -ComObject HNetCfg.HNetShare
 foreach ($c in $hnet.EnumEveryConnection) {
     $props = $hnet.NetConnectionProps.Invoke($c)
     $cfg = $hnet.INetSharingConfigurationForINetConnection.Invoke($c)
-    if ($cfg.SharingEnabled -and $props.DeviceName -match 'Hosted Network') {
+    if ($cfg.SharingEnabled) {
         $cfg.DisableSharing()
         Write-Host ("ICS отключён ({0})" -f $props.Name)
     }

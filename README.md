@@ -1,6 +1,17 @@
 # VPN и Wi-Fi hotspot
 
-Эта папка настраивает последовательность: **TrustTunnel VPN → адаптер `tun0` → раздача Wi-Fi `DektHotspot`**.
+Эта папка настраивает последовательность: **TrustTunnel VPN → адаптер `tun0` → раздача по Wi-Fi `DektHotspot` или Ethernet**.
+
+## Выбор способа раздачи
+
+Откройте `config\hotspot-settings.psd1` и измените одну строку:
+
+```powershell
+DeliveryMode = 'WiFi'      # tun0 → DektHotspot
+# DeliveryMode = 'Ethernet' # tun0 → Ethernet 2 (Realtek PCIe GbE Family Controller #2)
+```
+
+В режиме `Ethernet` Wi-Fi hosted network не запускается. ICS назначает `Ethernet 2` адрес `192.168.137.1` и выдаёт подключённым устройствам IP/DNS автоматически. Не назначайте этот адрес вручную. Поля `EthernetAdapter`, `SSID`, `Key` и `TunnelName` находятся в том же файле. При необходимости восстановить конфиг можно из `hotspot-settings.example.psd1`.
 
 Старый sing-box (VLESS Reality на заблокированный сервер 195.63.163.172) больше не запускается и не нужен. Его скрипты перенесены в [deprecated](deprecated/), а сам `sing-box-1.14.0/` можно удалить. Автозапуск использует только `trusttunnel-client\trusttunnel_client.exe` и конфигурационный файл `config\trusttunnel_client.toml` (папка `config\` добавлена в `.gitignore`, содержит VPN-учётные данные). Старый конфиг `config\sing-box.json` сохранён там же только для истории.
 
@@ -13,7 +24,7 @@
 1. Останавливает Hiddify и sing-box, если они были запущены, чтобы никто не занял TUN-адаптер.
 2. Запускает `trusttunnel_client` с конфигурацией TrustTunnel (сервер `feel.cloud-ip.cc` / `79.143.29.74:443`).
 3. Ждёт, пока `tun0` получит доступ в интернет.
-4. Включает Wi-Fi `DektHotspot` и ICS через `tun0`.
+4. Включает ICS через `tun0` на интерфейс, выбранный в `config\hotspot-settings.psd1`.
 
 Обычно это занимает около 20–40 секунд после входа в Windows.
 
@@ -60,7 +71,7 @@
 
 ```text
 TrustTunnel tunnel is ready.
-Hotspot started successfully through TrustTunnel.
+Internet sharing started successfully through TrustTunnel (WiFi).
 ```
 
 В `status-hotspot.cmd` источник ICS должен быть `tun0`, а virtual hosted adapter — иметь IPv4-адрес `192.168.137.1`.
